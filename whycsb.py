@@ -283,7 +283,7 @@ def run_worker(thread_num, perf_queue, app_config):
     ops_this_interval = 0
 
     # Operation count and duration limits
-    operation_count = app_config.get('operation_count', 0)
+    operation_count = app_config.get('operation_count', 0) // app_config['threads']
     run_seconds = app_config.get('run_seconds', 0)
     ops_completed = 0
     start_time = time.time()
