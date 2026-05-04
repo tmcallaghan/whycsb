@@ -1,6 +1,6 @@
 # whycsb
 
-Python implementation of the YCSB (Yahoo! Cloud Serving Benchmark) for MongoDB-compatible databases.
+Python implementation of the YCSB (Yahoo! Cloud Serving Benchmark) for MongoDB-compatible databases. All of the features, none of the bloat.
 
 ## Features
 
