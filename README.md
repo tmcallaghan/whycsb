@@ -32,9 +32,7 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Load Mode
-
-Load data into MongoDB:
+### Load Mode - load the data
 
 ```bash
 python whycsb.py --uri mongodb://localhost:27017 \
@@ -42,9 +40,7 @@ python whycsb.py --uri mongodb://localhost:27017 \
     --load --threads 8 --record-count 1000000 --batch-size 100
 ```
 
-### Run Mode
-
-Execute a YCSB workload:
+### Run Mode - execute a YCSB workload
 
 ```bash
 # Run 100,000 operations
@@ -173,7 +169,3 @@ Columns: timestamp, elapsed_time, elapsed_seconds, total_operations, overall_tps
 - [YCSB GitHub](https://github.com/brianfrankcooper/YCSB)
 - [YCSB Core Workloads](https://github.com/brianfrankcooper/YCSB/wiki/Core-Workloads)
 - [py-mongo-sysbench](https://github.com/aws-samples/amazon-documentdb-samples/tree/master/samples/py-mongo-sysbench)
-
-## License
-
-This is a reference implementation for educational and benchmarking purposes.

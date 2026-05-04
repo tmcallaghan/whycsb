@@ -508,50 +508,33 @@ def main():
     )
 
     # Connection parameters
-    parser.add_argument('--uri', required=True, type=str,
-                       help='MongoDB connection string')
-    parser.add_argument('--database', required=True, type=str,
-                       help='Database name')
-    parser.add_argument('--collection', type=str, default='usertable',
-                       help='Collection name (default: usertable)')
+    parser.add_argument('--uri', required=True, type=str, help='MongoDB connection string')
+    parser.add_argument('--database', required=True, type=str, help='Database name')
+    parser.add_argument('--collection', type=str, default='usertable', help='Collection name (default: usertable)')
 
     # Mode selection
-    parser.add_argument('--load', action='store_true',
-                       help='Load data mode')
-    parser.add_argument('--run', action='store_true',
-                       help='Run workload mode')
+    parser.add_argument('--load', action='store_true', help='Load data mode')
+    parser.add_argument('--run', action='store_true', help='Run workload mode')
 
     # Common parameters
-    parser.add_argument('--threads', type=int, default=1,
-                       help='Number of worker threads (default: 1)')
-    parser.add_argument('--record-count', type=int, default=1000,
-                       help='Number of records to load or size of dataset (default: 1000)')
-    parser.add_argument('--field-count', type=int, default=10,
-                       help='Number of fields per document (default: 10)')
-    parser.add_argument('--field-length', type=int, default=100,
-                       help='Length of each field in bytes (default: 100)')
+    parser.add_argument('--threads', type=int, default=1, help='Number of worker threads (default: 1)')
+    parser.add_argument('--record-count', type=int, default=1000, help='Number of records to load or size of dataset (default: 1000)')
+    parser.add_argument('--field-count', type=int, default=10, help='Number of fields per document (default: 10)')
+    parser.add_argument('--field-length', type=int, default=100, help='Length of each field in bytes (default: 100)')
 
     # Load-specific parameters
-    parser.add_argument('--batch-size', type=int, default=100,
-                       help='Batch size for insert_many (default: 100)')
+    parser.add_argument('--batch-size', type=int, default=100, help='Batch size for insert_many (default: 100)')
 
     # Run-specific parameters
-    parser.add_argument('--workload', type=str, choices=['A', 'B', 'C', 'D', 'E', 'F'],
-                       help='YCSB workload to run (A-F)')
-    parser.add_argument('--operation-count', type=int, default=0,
-                       help='Number of operations to execute (0 = use --run-seconds)')
-    parser.add_argument('--run-seconds', type=int, default=0,
-                       help='Duration in seconds to run (0 = use --operation-count)')
-    parser.add_argument('--max-scan-length', type=int, default=100,
-                       help='Maximum scan length for scan operations (default: 100)')
-    parser.add_argument('--rate-limit', type=int, default=0,
-                       help='Target operations per second across all threads (0 = unlimited)')
+    parser.add_argument('--workload', type=str, choices=['A', 'B', 'C', 'D', 'E', 'F'], help='YCSB workload to run (A-F)')
+    parser.add_argument('--operation-count', type=int, default=0, help='Number of operations to execute (0 = use --run-seconds)')
+    parser.add_argument('--run-seconds', type=int, default=0, help='Duration in seconds to run (0 = use --operation-count)')
+    parser.add_argument('--max-scan-length', type=int, default=100, help='Maximum scan length for scan operations (default: 100)')
+    parser.add_argument('--rate-limit', type=int, default=0, help='Target operations per second across all threads (0 = unlimited)')
 
     # Output parameters
-    parser.add_argument('--output-file', type=str,
-                       help='CSV file for performance metrics')
-    parser.add_argument('--seed', type=int, default=42,
-                       help='Random seed (default: 42)')
+    parser.add_argument('--output-file', type=str, help='CSV file for performance metrics')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed (default: 42)')
 
     args = parser.parse_args()
 
