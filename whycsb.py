@@ -583,9 +583,9 @@ def main():
     }
 
     print('---------------------------------------------------------------------------------------')
-    for thisKey in sorted(appConfig):
+    for thisKey in sorted(app_config):
         if (thisKey == 'uri'):
-            thisUri = appConfig[thisKey]
+            thisUri = app_config[thisKey]
             thisParsedUri = pymongo.uri_parser.parse_uri(thisUri)
             thisUsername = thisParsedUri['username']
             thisPassword = thisParsedUri['password']
@@ -594,9 +594,9 @@ def main():
             print(f'  config | {thisKey} | {thisUri}')
         else:
             if type(appConfig[thisKey]) == int:
-                print(f'  config | {thisKey} | {appConfig[thisKey]:,d}')
+                print(f'  config | {thisKey} | {app_config[thisKey]:,d}')
             else:
-                print(f'  config | {thisKey} | {appConfig[thisKey]}')
+                print(f'  config | {thisKey} | {app_config[thisKey]}')
     print(f'---------------------------------------------------------------------------------------')
 
     # Setup
