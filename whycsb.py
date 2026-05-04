@@ -593,7 +593,7 @@ def main():
             thisUri = thisUri.replace(thisPassword,'<PASSWORD>')
             print(f'  config | {thisKey} | {thisUri}')
         else:
-            if type(appConfig[thisKey]) == int:
+            if type(app_config[thisKey]) == int:
                 print(f'  config | {thisKey} | {app_config[thisKey]:,d}')
             else:
                 print(f'  config | {thisKey} | {app_config[thisKey]}')
