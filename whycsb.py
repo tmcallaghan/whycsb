@@ -8,9 +8,9 @@ import csv
 import multiprocessing as mp
 import random
 import string
-import sys
 import threading
 import time
+import warnings
 from collections import defaultdict
 from datetime import datetime
 
@@ -188,6 +188,9 @@ def choose_operation(workload_spec, rng):
 
 def load_worker(thread_num, perf_queue, app_config):
     """Worker process for loading data"""
+
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
+
     # Create per-worker MongoClient
     client = pymongo.MongoClient(app_config['uri'])
     db = client[app_config['database']]
@@ -245,6 +248,9 @@ def load_worker(thread_num, perf_queue, app_config):
 
 def run_worker(thread_num, perf_queue, app_config):
     """Worker process for running workload"""
+
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
+
     # Create per-worker MongoClient
     client = pymongo.MongoClient(app_config['uri'])
     db = client[app_config['database']]
@@ -478,6 +484,9 @@ def reporter(perf_queue, app_config):
 
 def setup_load(app_config):
     """Setup for load mode"""
+
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
+
     client = pymongo.MongoClient(app_config['uri'])
     db = client[app_config['database']]
     col = db[app_config['collection']]
@@ -572,6 +581,23 @@ def main():
         'mode_load': args.load,
         'mode_run': args.run
     }
+
+    print('---------------------------------------------------------------------------------------')
+    for thisKey in sorted(appConfig):
+        if (thisKey == 'uri'):
+            thisUri = appConfig[thisKey]
+            thisParsedUri = pymongo.uri_parser.parse_uri(thisUri)
+            thisUsername = thisParsedUri['username']
+            thisPassword = thisParsedUri['password']
+            thisUri = thisUri.replace(thisUsername,'<USERNAME>')
+            thisUri = thisUri.replace(thisPassword,'<PASSWORD>')
+            print(f'  config | {thisKey} | {thisUri}')
+        else:
+            if type(appConfig[thisKey]) == int:
+                print(f'  config | {thisKey} | {appConfig[thisKey]:,d}')
+            else:
+                print(f'  config | {thisKey} | {appConfig[thisKey]}')
+    print(f'---------------------------------------------------------------------------------------')
 
     # Setup
     if args.load:
