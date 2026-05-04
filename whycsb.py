@@ -416,10 +416,6 @@ def reporter(perf_queue, app_config):
                     total_ops += op_count
                 elif msg['name'] == 'processCompleted':
                     num_completed += 1
-                elif msg['name'] == 'shutdown':
-                    if csv_file:
-                        csv_file.close()
-                    return
             except:
                 break
 
@@ -629,8 +625,7 @@ def main():
     for p in process_list:
         p.join()
 
-    # Signal reporter to shutdown and wait
-    perf_queue.put({'name': 'shutdown'})
+    # Join reporter
     reporter_thread.join()
 
     print('\nBenchmark completed.')
