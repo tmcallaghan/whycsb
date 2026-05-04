@@ -12,7 +12,7 @@ import threading
 import time
 import warnings
 from collections import defaultdict
-from datetime import datetime
+import datetime as dt
 
 import pymongo
 
@@ -147,7 +147,8 @@ def generate_document(key, field_count=10, field_length=100, rng=None):
 
 def get_timestamp():
     """Get ISO 8601 timestamp with milliseconds"""
-    return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    return dt.datetime.now(dt.timezone.utc).isoformat()[:-3] + 'Z'
+        
 
 
 def format_elapsed(seconds):
