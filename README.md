@@ -35,20 +35,20 @@ pip install -r requirements.txt
 ### Load Mode - load the data
 
 ```bash
-python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --load --threads 8 --record-count 1000000 --batch-size 100
+python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --load --threads 16 --record-count 1000000 --batch-size 200
 ```
 
 ### Run Mode - execute a YCSB workload
 
 ```bash
 # Run 100,000 operations
-python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --run --threads 8 --workload A --operation-count 100000
+python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --run --threads 16 --workload A --operation-count 100000
 
 # Run for 60 seconds
-python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --run --threads 8 --workload A --run-seconds 60
+python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --run --threads 16 --workload A --run-seconds 60
 
 # With rate limiting and CSV output
-python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --run --threads 8 --workload A --run-seconds 60 --rate-limit 10000 --output-file results.csv
+python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection usertable --run --threads 16 --workload A --run-seconds 60 --rate-limit 10000 --output-file results.csv
 ```
 
 ## YCSB Workloads

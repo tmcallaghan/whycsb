@@ -148,7 +148,6 @@ def generate_document(key, field_count=10, field_length=100, rng=None):
 def get_timestamp():
     """Get ISO 8601 timestamp with milliseconds"""
     return dt.datetime.now(dt.timezone.utc).isoformat()[:-3] + 'Z'
-        
 
 
 def format_elapsed(seconds):
@@ -183,6 +182,26 @@ def choose_operation(workload_spec, rng):
             return op_type
     # Fallback to first operation
     return [k for k in workload_spec.keys() if k != 'distribution'][0]
+
+
+def reportCollectionInfo(app_config):
+    client = pymongo.MongoClient(app_config['uri'])
+    db = client[app_config['database']]
+
+    collStats = db.command("collStats", app_config['collection'])
+
+    compressionRatio = collStats['size'] / collStats['storageSize']
+    gbDivisor = 1024*1024*1024
+
+    print(f'\nCollection information')
+    print(f'  numDocs             = {collStats["count"]:12,d}')
+    print(f'  avgObjSize          = {int(collStats["avgObjSize"]):12,d}')
+    print(f'  size (GB)           = {collStats["size"]/gbDivisor:12,.4f}')
+    print(f'  storageSize (GB)    = {collStats["storageSize"]/gbDivisor:12,.4f}')
+    print(f'  compressionRatio    = {compressionRatio:12,.4f}')
+    print(f'  totalIndexSize (GB) = {collStats["totalIndexSize"]/gbDivisor:12,.4f}')
+
+    client.close()
 
 
 # Worker functions
@@ -440,9 +459,9 @@ def reporter(perf_queue, app_config):
 
         # Print to stdout
         print(f'[{get_timestamp()}] elapsed {format_elapsed(elapsed)} | '
-              f'total ops {total_ops:,} at {overall_tps:.2f} op/s | '
-              f'interval {interval_tps:.2f} op/s @ {interval_avg_latency:.2f} ms | '
-              f'last {window_size} {window_tps:.2f} op/s @ {window_latency:.2f} ms')
+              f'total ops {total_ops:,} at {overall_tps:,.2f} op/s | '
+              f'interval {interval_tps:,.2f} op/s @ {interval_avg_latency:.2f} ms | '
+              f'last {window_size} {window_tps:,.2f} op/s @ {window_latency:.2f} ms')
 
         # Write to CSV
         if csv_writer:
@@ -464,7 +483,7 @@ def reporter(perf_queue, app_config):
     print(f'\n=== Final Statistics ===')
     print(f'Total operations: {total_ops:,}')
     print(f'Total time: {format_elapsed(elapsed)}')
-    print(f'Overall throughput: {total_ops / elapsed:.2f} op/s')
+    print(f'Overall throughput: {total_ops / elapsed:,.2f} op/s')
     print(f'\nOperation breakdown:')
     for op_type, stats in sorted(op_stats.items()):
         count = stats['count']
@@ -489,7 +508,7 @@ def setup_load(app_config):
     col = db[app_config['collection']]
 
     # Drop collection if it exists
-    print(f"Dropping collection {app_config['collection']} if it exists...")
+    print(f"Dropping collection {app_config['database']}.{app_config['collection']} if it exists...")
     col.drop()
 
     print(f"Loading {app_config['record_count']:,} records into "
@@ -627,6 +646,9 @@ def main():
 
     # Join reporter
     reporter_thread.join()
+
+    # Collection information
+    reportCollectionInfo(app_config)
 
     print('\nBenchmark completed.')
 
