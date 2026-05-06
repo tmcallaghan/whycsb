@@ -292,6 +292,7 @@ def run_worker(thread_num, perf_queue, app_config):
     # number of seconds between reporting perf
     perfReportIntervalSeconds = 1
     nextPerfReportTime = time.time() + perfReportIntervalSeconds
+    perfDict = {}
 
     # Distribution generator
     key_gen = get_distribution_generator(
@@ -380,11 +381,12 @@ def run_worker(thread_num, perf_queue, app_config):
         op_latency = (time.time() - op_start) * 1000
 
         if op_type not in perfDict:
-            perfDict[opType]['latency'] = 0.0
-            perfDict[opType]['opCount'] = 0
+            perfDict[op_type] = {}
+            perfDict[op_type]['latency'] = 0.0
+            perfDict[op_type]['opCount'] = 0
 
-        perfDict[opType]['latency'] += op_latency
-        perfDict[opType]['opCount'] += 1
+        perfDict[op_type]['latency'] += op_latency
+        perfDict[op_type]['opCount'] += 1
 
         # Report perf data
         if time.time() > nextPerfReportTime:
