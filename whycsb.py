@@ -185,6 +185,9 @@ def choose_operation(workload_spec, rng):
 
 
 def reportCollectionInfo(app_config):
+    """Output collection specifics"""
+    warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
+
     client = pymongo.MongoClient(app_config['uri'])
     db = client[app_config['database']]
 
@@ -622,8 +625,13 @@ def main():
         setup_run(app_config)
 
     # Create shared queue and processes
-    mp.set_start_method('spawn', force=True)
+    mp.set_start_method('spawn')
     perf_queue = mp.Manager().Queue()
+
+    # Start reporter thread
+    reporter_thread = threading.Thread(target=reporter, args=(perf_queue, app_config))
+    reporter_thread.start()
+
     process_list = []
 
     # Spawn workers
@@ -633,10 +641,6 @@ def main():
         else:
             p = mp.Process(target=run_worker, args=(i, perf_queue, app_config))
         process_list.append(p)
-
-    # Start reporter thread
-    reporter_thread = threading.Thread(target=reporter, args=(perf_queue, app_config))
-    reporter_thread.start()
 
     # Start and join workers
     for p in process_list:
