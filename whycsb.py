@@ -511,8 +511,9 @@ def setup_load(app_config):
     col = db[app_config['collection']]
 
     # Drop collection if it exists
-    print(f"Dropping collection {app_config['database']}.{app_config['collection']} if it exists...")
-    col.drop()
+    if app_config['drop_collection']:
+        print(f"Dropping collection {app_config['database']}.{app_config['collection']} if it exists...")
+        col.drop()
 
     print(f"Loading {app_config['record_count']:,} records into "
           f"{app_config['database']}.{app_config['collection']} "
@@ -552,6 +553,7 @@ def main():
 
     # Load-specific parameters
     parser.add_argument('--batch-size', type=int, default=100, help='Batch size for insert_many (default: 100)')
+    parser.add_argument('--drop-collection',required=False,action='store_true',help='Drop the collection (if it exists)')
 
     # Run-specific parameters
     parser.add_argument('--workload', type=str, choices=['A', 'B', 'C', 'D', 'E', 'F'], help='YCSB workload to run (A-F)')
@@ -598,7 +600,8 @@ def main():
         'output_file': args.output_file,
         'seed': args.seed,
         'mode_load': args.load,
-        'mode_run': args.run
+        'mode_run': args.run,
+        'drop_collection': args.drop_collection
     }
 
     print('---------------------------------------------------------------------------------------')
