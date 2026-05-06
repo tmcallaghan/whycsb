@@ -611,8 +611,10 @@ def main():
             thisParsedUri = pymongo.uri_parser.parse_uri(thisUri)
             thisUsername = thisParsedUri['username']
             thisPassword = thisParsedUri['password']
-            thisUri = thisUri.replace(thisUsername,'<USERNAME>')
-            thisUri = thisUri.replace(thisPassword,'<PASSWORD>')
+            if thisUsername is not None:
+                thisUri = thisUri.replace(thisUsername,'<USERNAME>')
+            if thisPassword is not None:
+                thisUri = thisUri.replace(thisPassword,'<PASSWORD>')
             print(f'  config | {thisKey} | {thisUri}')
         else:
             if type(app_config[thisKey]) == int:
