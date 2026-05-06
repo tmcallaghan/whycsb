@@ -289,6 +289,10 @@ def run_worker(thread_num, perf_queue, app_config):
     field_length = app_config['field_length']
     max_scan_length = app_config['max_scan_length']
 
+    # number of seconds between reporting perf
+    perfReportIntervalSeconds = 1
+    nextPerfReportTime = time.time() + perfReportIntervalSeconds
+
     # Distribution generator
     key_gen = get_distribution_generator(
         workload['distribution'],
@@ -375,13 +379,26 @@ def run_worker(thread_num, perf_queue, app_config):
 
         op_latency = (time.time() - op_start) * 1000
 
-        # Report operation
-        perf_queue.put({
-            'name': 'opCompleted',
-            'latency': op_latency,
-            'opType': op_type,
-            'opCount': 1
-        })
+        if op_type not in perfDict:
+            perfDict[opType]['latency'] = 0.0
+            perfDict[opType]['opCount'] = 0
+
+        perfDict[opType]['latency'] += op_latency
+        perfDict[opType]['opCount'] += 1
+
+        # Report perf data
+        if time.time() > nextPerfReportTime:
+            nextPerfReportTime = time.time() + perfReportIntervalSeconds
+
+            for thisKey in perfDict:
+                perf_queue.put({
+                    'name': 'opCompleted',
+                    'latency': perfDict[thisKey]['latency'],
+                    'opType': thisKey,
+                    'opCount': perfDict[thisKey]['opCount']
+                })
+                perfDict[thisKey]['latency'] = 0.0
+                perfDict[thisKey]['opCount'] = 0
 
         ops_completed += 1
         ops_this_interval += 1
