@@ -248,22 +248,16 @@ def load_worker(thread_num, perf_queue, app_config):
     batch_size = app_config['batch_size']
     field_count = app_config['field_count']
     field_length = app_config['field_length']
-    insertorder = app_config['insertorder']
-
-    # Generate key sequence based on insertorder
-    if insertorder == 'hashed':
-        # Hash keys to distribute insertions across shards
-        key_sequence = []
-        for key in range(start_key, end_key):
-            hashed_key = fnv_hash_64(key) % record_count
-            key_sequence.append(hashed_key)
-    else:
-        # Ordered: sequential insertion
-        key_sequence = range(start_key, end_key)
+    insert_order = app_config['insert_order']
 
     # Load data in batches
     batch = []
-    for key in key_sequence:
+    for key in range(start_key, end_key):
+        if insert_order == 'hashed':
+            doc_key = fnv_hash_64(key) % record_count
+        else:
+            doc_key = key
+
         batch.append(generate_document(key, field_count, field_length, rng))
 
         if len(batch) >= batch_size:
@@ -594,12 +588,11 @@ def main():
     parser.add_argument('--record-count', type=int, default=1000, help='Number of records to load or size of dataset (default: 1000)')
     parser.add_argument('--field-count', type=int, default=10, help='Number of fields per document (default: 10)')
     parser.add_argument('--field-length', type=int, default=100, help='Length of each field in bytes (default: 100)')
+    parser.add_argument('--insert-order', type=str, choices=['ordered', 'hashed'], default='ordered', help='Key insertion order: ordered (sequential) or hashed (distributed) (default: ordered)')
 
     # Load-specific parameters
     parser.add_argument('--batch-size', type=int, default=100, help='Batch size for insert_many (default: 100)')
     parser.add_argument('--drop-collection',required=False,action='store_true',help='Drop the collection (if it exists)')
-    parser.add_argument('--insertorder', type=str, choices=['ordered', 'hashed'], default='ordered',
-                        help='Key insertion order: ordered (sequential) or hashed (distributed) (default: ordered)')
 
     # Run-specific parameters
     parser.add_argument('--workload', type=str, choices=['A', 'B', 'C', 'D', 'E', 'F'], help='YCSB workload to run (A-F)')
@@ -638,7 +631,7 @@ def main():
         'field_count': args.field_count,
         'field_length': args.field_length,
         'batch_size': args.batch_size,
-        'insertorder': args.insertorder,
+        'insert_order': args.insert_order,
         'workload': args.workload,
         'operation_count': args.operation_count,
         'run_seconds': args.run_seconds,
