@@ -124,6 +124,19 @@ class SkewedLatestGenerator:
 
 # Utility functions
 
+def fnv_hash_64(val):
+    """FNV-1a 64-bit hash for key hashing"""
+    FNV_OFFSET_BASIS_64 = 0xcbf29ce484222325
+    FNV_PRIME_64 = 0x100000001b3
+
+    hash_val = FNV_OFFSET_BASIS_64
+    val_bytes = str(val).encode('utf-8')
+    for byte in val_bytes:
+        hash_val ^= byte
+        hash_val = (hash_val * FNV_PRIME_64) & 0xffffffffffffffff
+    return hash_val
+
+
 def format_key(key_num):
     """Format key as YCSB-style user key"""
     return f'user{str(key_num).zfill(16)}'
@@ -235,10 +248,22 @@ def load_worker(thread_num, perf_queue, app_config):
     batch_size = app_config['batch_size']
     field_count = app_config['field_count']
     field_length = app_config['field_length']
+    insertorder = app_config['insertorder']
+
+    # Generate key sequence based on insertorder
+    if insertorder == 'hashed':
+        # Hash keys to distribute insertions across shards
+        key_sequence = []
+        for key in range(start_key, end_key):
+            hashed_key = fnv_hash_64(key) % record_count
+            key_sequence.append(hashed_key)
+    else:
+        # Ordered: sequential insertion
+        key_sequence = range(start_key, end_key)
 
     # Load data in batches
     batch = []
-    for key in range(start_key, end_key):
+    for key in key_sequence:
         batch.append(generate_document(key, field_count, field_length, rng))
 
         if len(batch) >= batch_size:
@@ -573,6 +598,8 @@ def main():
     # Load-specific parameters
     parser.add_argument('--batch-size', type=int, default=100, help='Batch size for insert_many (default: 100)')
     parser.add_argument('--drop-collection',required=False,action='store_true',help='Drop the collection (if it exists)')
+    parser.add_argument('--insertorder', type=str, choices=['ordered', 'hashed'], default='ordered',
+                        help='Key insertion order: ordered (sequential) or hashed (distributed) (default: ordered)')
 
     # Run-specific parameters
     parser.add_argument('--workload', type=str, choices=['A', 'B', 'C', 'D', 'E', 'F'], help='YCSB workload to run (A-F)')
@@ -611,6 +638,7 @@ def main():
         'field_count': args.field_count,
         'field_length': args.field_length,
         'batch_size': args.batch_size,
+        'insertorder': args.insertorder,
         'workload': args.workload,
         'operation_count': args.operation_count,
         'run_seconds': args.run_seconds,
