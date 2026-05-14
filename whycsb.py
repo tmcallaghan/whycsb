@@ -54,12 +54,15 @@ class ZipfianGenerator:
         self.rng = random.Random(seed)
         self.scrambled = scrambled
 
+        # Generate over 10B-item space when scrambled, actual keyspace otherwise
+        self.gen_items = self.ITEM_COUNT if self.scrambled else self.num_items
+
         # Calculate zeta values
         self.theta = self.ZIPFIAN_CONSTANT
         self.alpha = 1.0 / (1.0 - self.theta)
         self.zeta2theta = self._zeta(2, self.theta)
         self.zetan = self.ZETAN
-        self.eta = (1.0 - pow(2.0, -self.theta)) / (1.0 - self.zeta2theta / self.zetan)
+        self.eta = (1.0 - pow(2.0 / self.gen_items, 1.0 - self.theta)) / (1.0 - self.zeta2theta / self.zetan)
 
     def _zeta(self, n, theta):
         """Calculate zeta value"""
@@ -90,7 +93,7 @@ class ZipfianGenerator:
         elif uz < 1.0 + pow(0.5, self.theta):
             zipfian_value = 1
         else:
-            zipfian_value = int(self.num_items * pow(self.eta * u - self.eta + 1, self.alpha))
+            zipfian_value = int(self.gen_items * pow(self.eta * u - self.eta + 1, self.alpha))
 
         # Optionally scramble using FNV hash
         if self.scrambled:
