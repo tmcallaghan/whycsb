@@ -8,7 +8,7 @@ Python implementation of the YCSB (Yahoo! Cloud Serving Benchmark) for MongoDB-c
 - Standard YCSB workloads A-F with correct operation mixes
 - Zipfian, uniform, and latest key distributions
 - Multiprocessing for parallel load and execution
-- Real-time throughput and latency reporting
+- Real-time throughput and latency reporting, including user-defined latency percentiles
 - CSV output for metrics analysis
 
 ## Requirements
@@ -78,6 +78,7 @@ python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection us
 - `--record-count` - Number of records to load or dataset size (default: 1000)
 - `--field-count` - Fields per document (default: 10)
 - `--field-length` - Field length in bytes (default: 100)
+- `--insert-order` - Key order: `ordered` (sequential, default) or `hashed` (FNV-hashed keys spread across the key space, like YCSB's `insertorder=hashed`). Use the same value for `--run` as was used for `--load`; a mismatch is detected and rejected
 
 ### Load-Specific
 - `--batch-size` - Batch size for inserts (default: 100)
@@ -91,6 +92,7 @@ python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection us
 
 ### Output
 - `--output-file` - CSV file for performance metrics
+- `--percentiles` - Comma separated latency percentiles to report (default: 50,90,95,99), e.g. `--percentiles 50,99,99.9`
 - `--seed` - Random seed (default: 42)
 
 ## Document Schema
@@ -112,8 +114,11 @@ Each document is approximately 1KB with 10 fields of 100 bytes each.
 ## Architecture
 
 - **Multiprocessing**: Each worker is a separate process with its own MongoDB client
-- **Queue-based reporting**: Workers send performance metrics via multiprocessing.Queue
-- **Reporter thread**: Collects and displays metrics every 10 seconds
+- **Queue-based reporting**: Workers record every operation latency into a compact log-bucketed histogram (exact below 256 us, within 0.4% above) and send it once per second via multiprocessing.Queue
+- **Reporter thread**: Continuously consumes the queue (blocking with a timeout, no long sleeps) and displays metrics every 10 seconds; a single reporter keeps up with 1000+ workers
+- **Interval accuracy**: Workers tag stats with the 1-second time slot the operations completed in, so each 10 second interval (including the final partial one) reflects work actually done in it, independent of message arrival time
+- **Inserts (workloads D and E)**: Key numbers come from a counter shared by all workers, continuing after any keys inserted by earlier runs, so repeated runs never collide; the `latest` distribution follows inserts from all workers
+- **Percentiles**: Nearest-rank percentiles are reported per interval and, at the end of the run, per operation type over the entire run
 - **Rate limiting**: Interval-based token bucket per worker
 - **Key distributions**: Pure Python implementations (no numpy required)
 
@@ -148,12 +153,24 @@ done
 ### Console Output
 
 ```
-[2026-05-01T13:22:45.123Z] elapsed 00:00:10.000 | total ops 12,345 at 1,234.50 op/s | interval 1,250.00 op/s @ 8.00 ms | last 10 1,242.25 op/s @ 8.05 ms
+[2026-05-01T13:22:45.123Z] elapsed 00:00:10.000 | total ops 12,345 at 1,234.50 op/s | interval 1,250.00 op/s @ 8.00 ms | p50 4.85 p90 12.45 p95 18.37 p99 26.30 ms | last 10 1,242.25 op/s @ 8.05 ms
 ```
+
+The final summary includes a latency table per operation type (plus `all` when the workload mixes operations):
+
+```
+Latency (ms):
+  operation                 samples        avg        min        p50        p90        p95        p99        max
+  read                       98,585       2.06       0.41       1.32       3.96       5.55      14.62     181.56
+  update                     98,249       9.33       2.04       7.54      16.10      20.54      31.55     208.53
+  all                       196,834       5.69       0.41       4.66      11.94      16.58      25.92     208.53
+```
+
+In load mode latencies (and percentiles) are per `insert_many` batch.
 
 ### CSV Output
 
-Columns: timestamp, elapsed_time, elapsed_seconds, total_operations, overall_tps, interval_tps, interval_latency_ms, window_tps, window_latency_ms
+Columns: timestamp, elapsed_time, elapsed_seconds, total_operations, overall_tps, interval_tps, interval_latency_ms, window_tps, window_latency_ms, followed by one `interval_pNN_latency_ms` column per requested percentile
 
 ## References
 
