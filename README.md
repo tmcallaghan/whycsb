@@ -1,6 +1,6 @@
 # whycsb
 
-Python implementation of the YCSB (Yahoo! Cloud Serving Benchmark) for MongoDB-compatible databases. All of the features, none of the bloat.
+Python implementation of the [YCSB](https://github.com/brianfrankcooper/YCSB) (Yahoo! Cloud Serving Benchmark) for MongoDB-compatible databases. All of the features, none of the bloat.
 
 ## Features
 
@@ -178,4 +178,3 @@ Columns: timestamp, elapsed_time, elapsed_seconds, total_operations, overall_tps
 
 - [YCSB GitHub](https://github.com/brianfrankcooper/YCSB)
 - [YCSB Core Workloads](https://github.com/brianfrankcooper/YCSB/wiki/Core-Workloads)
-- [py-mongo-sysbench](https://github.com/aws-samples/amazon-documentdb-samples/tree/master/samples/py-mongo-sysbench)
