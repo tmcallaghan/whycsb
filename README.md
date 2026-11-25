@@ -113,7 +113,7 @@ Each document is approximately 1KB with 10 fields of 100 bytes each.
 
 ## Architecture
 
-- **Multiprocessing**: Each worker is a separate process with its own MongoDB client
+- **Multiprocessing**: Each worker is a separate process with its own MongoDB client. Workers are started with the `forkserver` method (pymongo is imported once in the fork server rather than in every worker), falling back to `spawn` where forkserver is unavailable (Windows)
 - **Queue-based reporting**: Workers record every operation latency into a compact log-bucketed histogram (exact below 256 us, within 0.4% above) and send it once per second via multiprocessing.Queue
 - **Reporter thread**: Continuously consumes the queue (blocking with a timeout, no long sleeps) and displays metrics every 10 seconds; a single reporter keeps up with 1000+ workers
 - **Interval accuracy**: Workers tag stats with the 1-second time slot the operations completed in, so each 10 second interval (including the final partial one) reflects work actually done in it, independent of message arrival time

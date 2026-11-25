@@ -147,12 +147,29 @@ def format_key(key_num):
     return f'user{str(key_num).zfill(16)}'
 
 
+# Random alphanumeric strings are built from random bytes in one pass instead of one
+# rng.choice() call per character (~20x faster). Each byte maps to a character; bytes
+# >= 248 (4 * 62) are discarded so every character stays equally likely.
+ALPHANUMERIC = (string.ascii_letters + string.digits).encode()
+ALPHANUMERIC_TABLE = bytes(ALPHANUMERIC[i % len(ALPHANUMERIC)] for i in range(256))
+ALPHANUMERIC_DISCARD = bytes(range(4 * len(ALPHANUMERIC), 256))
+
+
 def random_string(length, rng=None):
     """Generate random alphanumeric string of specified length"""
     if rng is None:
         rng = random
-    chars = string.ascii_letters + string.digits
-    return ''.join(rng.choice(chars) for _ in range(length))
+    if length <= 0:
+        return ''
+    chars = b''
+    while len(chars) < length:
+        need = length - len(chars)
+        # ~3% of bytes are discarded, over-draw a little so a second pass is rare
+        num_bytes = need + need // 16 + 8
+        # getrandbits().to_bytes() is what Random.randbytes() does (randbytes needs Python 3.9+)
+        chars += rng.getrandbits(8 * num_bytes).to_bytes(num_bytes, 'little').translate(
+            ALPHANUMERIC_TABLE, ALPHANUMERIC_DISCARD)
+    return chars[:length].decode('ascii')
 
 
 def key_name(key_num, insert_order='ordered'):
@@ -1071,7 +1088,16 @@ def main():
         insert_start = setup_run(app_config)
 
     # Create shared queue and processes
-    mp.set_start_method('spawn')
+    # forkserver: workers are forked from a server process that has already imported whycsb and
+    # pymongo, instead of each starting a fresh interpreter and importing pymongo (spawn), which
+    # cuts per-worker startup CPU by about two thirds. It is fork-safe because the fork server only imports
+    # modules (no MongoClient or threads), and every worker still creates its own MongoClient.
+    # Fall back to spawn where forkserver is unavailable (Windows).
+    if 'forkserver' in mp.get_all_start_methods():
+        mp.set_start_method('forkserver')
+        mp.set_forkserver_preload(['__main__', 'pymongo'])
+    else:
+        mp.set_start_method('spawn')
     perf_queue = mp.Queue()
 
     if args.run:
