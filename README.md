@@ -92,7 +92,7 @@ python whycsb.py --uri mongodb://localhost:27017 --database ycsb --collection us
 
 ### Output
 - `--output-file` - CSV file for performance metrics
-- `--percentiles` - Comma separated latency percentiles to report (default: 50,90,95,99), e.g. `--percentiles 50,99,99.9`
+- `--percentiles` - Comma separated latency percentiles to report (default: 50,90,95,99), e.g. `--percentiles 50,90,95,99`
 - `--seed` - Random seed (default: 42)
 
 ## Document Schema
@@ -117,8 +117,10 @@ Each document is approximately 1KB with 10 fields of 100 bytes each.
 - **Queue-based reporting**: Workers record every operation latency into a compact log-bucketed histogram (exact below 256 us, within 0.4% above) and send it once per second via multiprocessing.Queue
 - **Reporter thread**: Continuously consumes the queue (blocking with a timeout, no long sleeps) and displays metrics every 10 seconds; a single reporter keeps up with 1000+ workers
 - **Interval accuracy**: Workers tag stats with the 1-second time slot the operations completed in, so each 10 second interval (including the final partial one) reflects work actually done in it, independent of message arrival time
-- **Inserts (workloads D and E)**: Key numbers come from a counter shared by all workers, continuing after any keys inserted by earlier runs, so repeated runs never collide; the `latest` distribution follows inserts from all workers
+- **Inserts (workloads D and E)**: Key numbers come from a counter shared by all workers, continuing after any keys inserted by earlier runs, so repeated runs never collide; the `latest` distribution follows inserts from all workers, advancing only past keys whose inserts have completed (like YCSB's acknowledged counter)
 - **Percentiles**: Nearest-rank percentiles are reported per interval and, at the end of the run, per operation type over the entire run
+- **Latency measurement**: Only the database call is timed; keys, field values and new documents are generated before the timer starts (matching YCSB's `DBWrapper`)
+- **Errors**: As in YCSB, an operation that raises a driver error, or a read/update/scan/read-modify-write that finds no document, is counted as `<op>-failed` (e.g. `read-failed`) and the worker carries on. Failed operations count toward throughput, have their own rows in the final latency table, and are excluded from the interval percentiles and the `all` row. The first error of each kind per worker is printed to stderr
 - **Rate limiting**: Interval-based token bucket per worker
 - **Key distributions**: Pure Python implementations (no numpy required)
 
@@ -170,7 +172,7 @@ In load mode latencies (and percentiles) are per `insert_many` batch.
 
 ### CSV Output
 
-Columns: timestamp, elapsed_time, elapsed_seconds, total_operations, overall_tps, interval_tps, interval_latency_ms, window_tps, window_latency_ms, followed by one `interval_pNN_latency_ms` column per requested percentile
+Columns: timestamp, elapsed_time, elapsed_seconds, total_operations, overall_tps, interval_tps, interval_latency_ms, window_tps, window_latency_ms, followed by one `interval_pNN_latency_ms` column per requested percentile, and `interval_errors` (failed operations in the interval)
 
 ## References
 

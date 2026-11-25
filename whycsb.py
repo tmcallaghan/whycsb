@@ -289,6 +289,16 @@ def merge_stats_dict(target, source):
         merge_op_stats(target[op_type], stats)
 
 
+def is_failed_op(op_type):
+    """Failed operations are recorded under '<op>-failed', like YCSB's READ-FAILED"""
+    return op_type.endswith('-failed')
+
+
+def successful_ops(stats_dict):
+    """Only the stats of operations that succeeded"""
+    return {op_type: stats for op_type, stats in stats_dict.items() if not is_failed_op(op_type)}
+
+
 def combine_op_stats(stats_dict):
     """Combine all operation types into a single stats record"""
     combined = new_op_stats()
@@ -403,7 +413,13 @@ def reportCollectionInfo(app_config):
     client = pymongo.MongoClient(app_config['uri'])
     db = client[app_config['database']]
 
-    collStats = db.command("collStats", app_config['collection'])
+    try:
+        collStats = db.command("collStats", app_config['collection'])
+    except pymongo.errors.PyMongoError as e:
+        # informational only, the benchmark results above are complete
+        print(f'\nCollection information unavailable: {type(e).__name__}: {e}', file=sys.stderr)
+        client.close()
+        return
 
     compressionRatio = collStats['size'] / collStats['storageSize']
     gbDivisor = 1024*1024*1024
@@ -484,30 +500,98 @@ def allocate_insert_key(insert_counter):
     return key_num
 
 
-def acknowledge_insert_key(latest_key, key_num):
-    """Publish a completed insert so 'latest' readers in every worker can target it"""
+# Acknowledgement window (port of YCSB's AcknowledgedCounterGenerator): an insert key is
+# marked when its insert finishes, and latest_key (the newest key 'latest' reads may target)
+# only advances across a contiguous run of marked keys, so it never passes a key that
+# another worker has allocated but not yet inserted.
+ACK_WINDOW_SIZE = 1 << 20
+
+
+def acknowledge_insert_key(latest_key, ack_window, key_num):
+    """Mark an insert key as finished and advance latest_key over every contiguous finished key"""
     with latest_key.get_lock():
-        if key_num > latest_key.value:
-            latest_key.value = key_num
+        slot = key_num % ACK_WINDOW_SIZE
+        if ack_window[slot]:
+            raise RuntimeError('Too many unacknowledged insert keys')
+        ack_window[slot] = 1
+        next_key = latest_key.value + 1
+        while ack_window[next_key % ACK_WINDOW_SIZE]:
+            ack_window[next_key % ACK_WINDOW_SIZE] = 0
+            next_key += 1
+        latest_key.value = next_key - 1
 
 
-def insert_new_document(col, insert_counter, field_count, field_length, rng, insert_order):
-    """Insert one new document, skipping keys that already exist (e.g. left by an interrupted run)"""
-    while True:
-        key_num = allocate_insert_key(insert_counter)
-        doc = generate_document(key_num, field_count, field_length, rng, insert_order)
-        try:
-            col.insert_one(doc)
-            return key_num
-        except pymongo.errors.DuplicateKeyError:
-            continue
+def prepare_operation(op_type, key_gen, rng, ctx):
+    """Build everything an operation needs (keys, values, documents) before its latency timer starts"""
+    field_count = ctx['field_count']
+    field_length = ctx['field_length']
+    if op_type == 'insert':
+        key_num = allocate_insert_key(ctx['insert_counter'])
+        return {'key_num': key_num,
+                'doc': generate_document(key_num, field_count, field_length, rng, ctx['insert_order'])}
+
+    prep = {'key': key_name(key_gen.next(), ctx['insert_order'])}
+    if op_type == 'update':
+        prep['values'] = {f'field{rng.randint(0, field_count - 1)}': random_string(field_length, rng)}
+    elif op_type == 'readmodifywrite':
+        prep['values'] = {f'field{i}': random_string(field_length, rng) for i in range(field_count)}
+    elif op_type == 'scan':
+        prep['scan_length'] = rng.randint(1, ctx['max_scan_length'])
+    return prep
 
 
-def run_worker(thread_num, perf_queue, app_config, insert_counter, latest_key):
+def execute_operation(col, op_type, prep, rng, ctx):
+    """Run one prepared operation, returns False if the target document was not found (YCSB NOT_FOUND)"""
+    if op_type == 'read':
+        return col.find_one({'_id': prep['key']}) is not None
+
+    if op_type == 'update':
+        return col.update_one({'_id': prep['key']}, {'$set': prep['values']}).matched_count > 0
+
+    if op_type == 'scan':
+        cursor = col.find({'_id': {'$gte': prep['key']}}).limit(prep['scan_length'])
+        return len(list(cursor)) > 0
+
+    if op_type == 'readmodifywrite':
+        doc = col.find_one({'_id': prep['key']})
+        if doc is None:
+            return False
+        doc.update(prep['values'])
+        col.replace_one({'_id': prep['key']}, doc)
+        return True
+
+    if op_type == 'insert':
+        while True:
+            try:
+                col.insert_one(prep['doc'])
+                return True
+            except pymongo.errors.DuplicateKeyError:
+                # key left by an interrupted run (rare): it exists, so acknowledge it and take the next one
+                acknowledge_insert_key(ctx['latest_key'], ctx['ack_window'], prep['key_num'])
+                prep['key_num'] = allocate_insert_key(ctx['insert_counter'])
+                prep['doc'] = generate_document(prep['key_num'], ctx['field_count'], ctx['field_length'],
+                                                rng, ctx['insert_order'])
+
+    raise ValueError(f'Unknown operation type: {op_type}')
+
+
+def report_op_error(thread_num, op_type, error, errors_seen):
+    """Print the first error of each kind per worker; every error is still counted as <op>-failed"""
+    kind = (op_type, type(error).__name__ if error else 'NotFound')
+    if kind in errors_seen:
+        return
+    errors_seen.add(kind)
+    detail = f'{kind[1]}: {error}' if error else 'document not found'
+    print(f'worker {thread_num}: {op_type} failed: {detail} '
+          f'(further {kind[1]} errors for {op_type} are counted, not printed)', file=sys.stderr, flush=True)
+
+
+def run_worker(thread_num, perf_queue, app_config, insert_counter, latest_key, ack_window):
     """Worker process for running workload
 
     insert_counter and latest_key are multiprocessing.Value objects shared by all
-    workers: the next key number to insert and the newest key known to be inserted.
+    workers: the next key number to insert and the newest key below which every key
+    is inserted. ack_window is the shared acknowledgement window for latest_key.
     """
 
     warnings.filterwarnings("ignore","You appear to be connected to a DocumentDB cluster.")
@@ -525,8 +609,11 @@ def run_worker(thread_num, perf_queue, app_config, insert_counter, latest_key):
     record_count = app_config['record_count']
     field_count = app_config['field_count']
     field_length = app_config['field_length']
-    max_scan_length = app_config['max_scan_length']
     insert_order = app_config['insert_order']
+    ctx = {'field_count': field_count, 'field_length': field_length, 'insert_order': insert_order,
+           'max_scan_length': app_config['max_scan_length'], 'insert_counter': insert_counter,
+           'latest_key': latest_key, 'ack_window': ack_window}
+    errors_seen = set()
 
     # Local stats, shipped to the reporter every PERF_REPORT_INTERVAL_SECONDS
     tracker = new_perf_tracker(perf_queue, app_config['start_time'])
@@ -581,38 +668,27 @@ def run_worker(thread_num, perf_queue, app_config, insert_counter, latest_key):
             if track_latest:
                 key_gen.acknowledge_insert(latest_key.value)
 
-            # Execute operation
+            # Prepare keys/values outside the timer so only the database call is measured (like YCSB)
+            prep = prepare_operation(op_type, key_gen, rng, ctx)
+
+            # Execute operation, errors and not-found are counted as <op>-failed and the worker carries on
+            error = None
             op_start = time.perf_counter_ns()
+            try:
+                ok = execute_operation(col, op_type, prep, rng, ctx)
+            except pymongo.errors.PyMongoError as e:
+                ok, error = False, e
+            latency_us = (time.perf_counter_ns() - op_start) // 1000
 
-            if op_type == 'read':
-                key = key_name(key_gen.next(), insert_order)
-                col.find_one({'_id': key})
+            if op_type == 'insert':
+                # acknowledged even if it failed (like YCSB) so latest_key can't stall on it
+                acknowledge_insert_key(latest_key, ack_window, prep['key_num'])
 
-            elif op_type == 'update':
-                key = key_name(key_gen.next(), insert_order)
-                field_to_update = f'field{rng.randint(0, field_count - 1)}'
-                new_value = random_string(field_length, rng)
-                col.update_one({'_id': key}, {'$set': {field_to_update: new_value}})
-
-            elif op_type == 'scan':
-                start_key = key_name(key_gen.next(), insert_order)
-                scan_length = rng.randint(1, max_scan_length)
-                cursor = col.find({'_id': {'$gte': start_key}}).limit(scan_length)
-                list(cursor)
-
-            elif op_type == 'readmodifywrite':
-                key = key_name(key_gen.next(), insert_order)
-                doc = col.find_one({'_id': key})
-                if doc:
-                    for i in range(field_count):
-                        doc[f'field{i}'] = random_string(field_length, rng)
-                    col.replace_one({'_id': key}, doc)
-
-            elif op_type == 'insert':
-                new_key = insert_new_document(col, insert_counter, field_count, field_length, rng, insert_order)
-                acknowledge_insert_key(latest_key, new_key)
-
-            track_op(tracker, op_type, (time.perf_counter_ns() - op_start) // 1000)
+            if ok:
+                track_op(tracker, op_type, latency_us)
+            else:
+                track_op(tracker, f'{op_type}-failed', latency_us)
+                report_op_error(thread_num, op_type, error, errors_seen)
 
             ops_completed += 1
             ops_this_interval += 1
@@ -658,7 +734,7 @@ def open_csv(app_config, pct_labels):
         'timestamp', 'elapsed_time', 'elapsed_seconds', 'total_operations',
         'overall_tps', 'interval_tps', 'interval_latency_ms',
         'window_tps', 'window_latency_ms'
-    ] + [f'interval_{label}_latency_ms' for label in pct_labels])
+    ] + [f'interval_{label}_latency_ms' for label in pct_labels] + ['interval_errors'])
     return csv_file, csv_writer
 
 
@@ -675,9 +751,15 @@ def print_final_stats(total_stats, total_ops, elapsed, percentiles, pct_labels):
             pct = (stats['count'] / total_ops) * 100
             print(f'  {op_type:20s}: {stats["count"]:10,} ops ({pct:5.1f}%) @ {avg_latency_ms(stats):.2f} ms avg')
 
+    total_errors = sum(stats['count'] for op_type, stats in total_stats.items() if is_failed_op(op_type))
+    if total_errors:
+        print(f'\nErrors: {total_errors:,} failed operations ({total_errors / total_ops * 100:.2f}%), '
+              f'excluded from the "all" latency row')
+
     rows = [(op_type, stats) for op_type, stats in sorted(total_stats.items()) if stats['samples'] > 0]
-    if len(rows) > 1:
-        rows.append(('all', combine_op_stats(total_stats)))
+    ok_stats = successful_ops(total_stats)
+    if len(rows) > 1 and ok_stats:
+        rows.append(('all', combine_op_stats(ok_stats)))
     if not rows:
         return
 
@@ -696,15 +778,18 @@ def report_interval(state, idx, end_elapsed):
     """Print (and write to CSV) one interval, covering elapsed time ((idx-1) * interval, end_elapsed]"""
     interval_stats = state['pending'].pop(idx, {})
     merge_stats_dict(state['total_stats'], interval_stats)
-    interval = combine_op_stats(interval_stats)
-    state['total_ops'] += interval['count']
+    interval_all = combine_op_stats(interval_stats)
+    # latency and percentiles describe successful operations, failures are counted separately
+    interval = combine_op_stats(successful_ops(interval_stats))
+    interval_errors = interval_all['count'] - interval['count']
+    state['total_ops'] += interval_all['count']
     total_ops = state['total_ops']
 
     # Calculate metrics
     duration = max(end_elapsed - (idx - 1) * REPORT_INTERVAL_SECONDS, 0.001)
     elapsed = max(end_elapsed, 0.001)
     overall_tps = total_ops / elapsed
-    interval_tps = interval['count'] / duration
+    interval_tps = interval_all['count'] / duration
     interval_avg_latency = avg_latency_ms(interval)
     interval_pcts = histogram_percentiles(interval, state['percentiles'])
 
@@ -726,7 +811,8 @@ def report_interval(state, idx, end_elapsed):
           f'total ops {total_ops:,} at {overall_tps:,.2f} op/s | '
           f'interval {interval_tps:,.2f} op/s @ {interval_avg_latency:.2f} ms | '
           f'{pct_text} ms | '
-          f'last {WINDOW_SIZE} {window_tps:,.2f} op/s @ {window_latency:.2f} ms', flush=True)
+          f'last {WINDOW_SIZE} {window_tps:,.2f} op/s @ {window_latency:.2f} ms'
+          + (f' | errors {interval_errors:,}' if interval_errors else ''), flush=True)
 
     # Write to CSV
     if state['csv_writer']:
@@ -740,7 +826,7 @@ def report_interval(state, idx, end_elapsed):
             f'{interval_avg_latency:.2f}',
             f'{window_tps:.2f}',
             f'{window_latency:.2f}'
-        ] + [f'{value:.2f}' for value in interval_pcts])
+        ] + [f'{value:.2f}' for value in interval_pcts] + [interval_errors])
         state['csv_file'].flush()
 
 
@@ -989,9 +1075,11 @@ def main():
     perf_queue = mp.Queue()
 
     if args.run:
-        # shared by all workers: next key number to insert, newest key known to be inserted
+        # shared by all workers: next key number to insert, newest key below which all keys are
+        # inserted, and the acknowledgement window that advances it
         insert_counter = mp.Value('q', insert_start)
         latest_key = mp.Value('q', insert_start - 1)
+        ack_window = mp.Array('b', ACK_WINDOW_SIZE, lock=False)
 
     # Common time origin for workers and the reporter
     app_config['start_time'] = time.time()
@@ -1007,7 +1095,7 @@ def main():
         if args.load:
             p = mp.Process(target=load_worker, args=(i, perf_queue, app_config))
         else:
-            p = mp.Process(target=run_worker, args=(i, perf_queue, app_config, insert_counter, latest_key))
+            p = mp.Process(target=run_worker, args=(i, perf_queue, app_config, insert_counter, latest_key, ack_window))
         process_list.append(p)
 
     # Start and join workers
